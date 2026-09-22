@@ -19,7 +19,7 @@ import { forwardRef } from "./permission-forward-ref"
 import { inboxServiceRef } from "@/inbox/inbox-ref"
 import { TuiEvent } from "@/cli/cmd/tui/event"
 import { EffectBridge } from "@/effect"
-import { Plugin } from "@/plugin"
+import { Service as PluginService } from "@/plugin/service"
 import type { Permission as PluginPermission } from "@mimo-ai/sdk"
 
 // Legacy env var — maps to permissionAskTimeoutMs initial value for backward
@@ -351,13 +351,17 @@ export const layer = Layer.effect(
 
       if (!needsAsk) return
 
+      // Allocate the request ID once so the plugin hook payload and the actual
+      // pending request/event (below) identify the same permission request.
+      const id = request.id ?? PermissionID.ascending()
+
       // Plugins get one chance to auto-allow or deny before the human
       // round-trip. This wires the `permission.ask` hook declared in
       // @mimo-ai/plugin but previously never consulted by the permission
       // system. An unset/`ask` status falls through to the normal prompt
       // below; forced-ask permissions keep the mandatory human confirmation.
       if (needsAsk && !forced) {
-        const pluginService = yield* Effect.serviceOption(Plugin.Service)
+        const pluginService = yield* Effect.serviceOption(PluginService)
         if (Option.isSome(pluginService)) {
           const pluginDecision = yield* pluginService.value.trigger<
             "permission.ask",
@@ -366,7 +370,7 @@ export const layer = Layer.effect(
           >(
             "permission.ask",
             {
-              id: (request.id ?? PermissionID.ascending()) as string,
+              id: id as unknown as string,
               type: request.permission,
               pattern: request.patterns.length === 1 ? request.patterns[0] : [...request.patterns],
               sessionID: request.sessionID,
@@ -393,7 +397,6 @@ export const layer = Layer.effect(
         }
       }
 
-      const id = request.id ?? PermissionID.ascending()
       const info = Schema.decodeUnknownSync(Request)({
         id,
         ...request,
